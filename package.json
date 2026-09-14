@@ -1,0 +1,19 @@
+{
+  "name": "spa-automation-toolkit",
+  "version": "1.0.0",
+  "description": "Browser-side utilities for automating React SPAs when the UI gets in the way: fetch interception, React Fiber traversal, pushState navigation, and pointer-sequence clicks.",
+  "main": "src/fetch-interceptor.js",
+  "files": ["src", "examples", "README.md", "LICENSE"],
+  "scripts": {
+    "test": "node test/run-tests.js"
+  },
+  "keywords": ["react", "spa", "automation", "fetch-interceptor", "react-fiber", "browser", "devtools"],
+  "author": "Sayandip Bagchi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sayandip1987/spa-automation-toolkit.git"
+  },
+  "engines": { "node": ">=14" },
+  "dependencies": {}
+}

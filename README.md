@@ -1,105 +1,175 @@
 # SPA Automation Toolkit
 
-A collection of browser-side JavaScript utilities for automating configuration changes in React Single Page Applications — especially when the UI won't let you. Born out of real production work automating analytics dashboards, bug-tracking workflows, and wiki publishing at the fintech company.
+Browser-side JavaScript for automating configuration changes in React single-page
+applications — specifically for the case where the API supports what you need and
+the UI will not let you do it.
 
-> Build effort: 2–3 hrs per session, ongoing across many sessions
-> Internal-team users: ~25–30 analytics, PM, UAT engineers
-> Stack: Vanilla JavaScript ES2017+, zero dependencies
+Zero dependencies. Paste a file into a DevTools console, or `require()` it in Node.
 
-## The Problem
+```
+npm test    # 22 tests, no dependencies, Node 14+
+```
 
-Modern SaaS platforms — analytics dashboards, project management tools, wikis — are built as React SPAs. They often have validation bugs, missing features, or restrictive UIs that prevent legitimate configurations. The underlying APIs support what's needed, but the frontend blocks it. This toolkit provides battle-tested patterns for working around those limitations without waiting for vendor fixes.
+## The problem
 
-## Use Cases Solved
+Enterprise SaaS — analytics dashboards, issue trackers, wikis — ships as React
+SPAs with validation bugs, missing bulk operations, and controls that are disabled
+for reasons the backend does not share. The underlying API accepts what you want
+to do. The frontend is what is stopping you.
 
-### 1. MoEngage Analytics — Dashboard Automation
+The reflex is to drive the DOM with a headless browser. That is usually the wrong
+tool: you end up re-implementing SSO and MFA, and you still lose to non-semantic
+components. The approach here is the opposite — run inside the user's own
+logged-in session, and be deliberate about side effects.
 
-**Problem:** MoEngage's Behavior chart editor wouldn't save bar-chart configurations. The "Save analysis" button was permanently disabled in bar-chart mode due to a UI validation bug ("Missing field — Please specify granularity"), even though the API accepted `chart_type: "column"` and `granularity: "e"` just fine.
-
-**What was built:**
-
-- A **fetch interceptor** sitting between the MoEngage frontend and its API, rewriting `chart_type` and `granularity` on outgoing PUT requests while letting the app's own auth headers pass through untouched
-- **SPA navigation** using `pushState` + `PopStateEvent` to move between chart editors without triggering "Leave site?" dialogs that blocked automation
-- **React Fiber traversal** to inspect the component hierarchy (`L → Fe → Wt → _r`), read hook states containing chart config, and call internal handlers like `onSegmentationPayloadChange` to rename segment labels in memory
-
-**Outcome:** Automated creation and configuration of behaviour charts across multiple dashboards — including Transactions, App Activity, and user segmentation modules — with event-based segmentation ("App Active and Txn Active", "App Active but Txn Inactive", "Txn Active but App Inactive") that the UI couldn't persist natively.
-
-### 2. Jira — Batch Ticket Creation & UAT Bug Filing
-
-**Problem:** Filing 18+ UAT bug tickets manually through Jira's modal is painfully slow. The form's custom component library doesn't use standard `<button>` elements (Jira renders priority dropdowns as styled `<div>`s with no `role="button"`), so standard DOM queries fail. Cross-session state loss meant re-entering Priority, Parent Epic, and Labels from scratch.
-
-**What was built:**
-
-- UI interaction utilities that dispatch full `mousedown → mouseup → click` event sequences with coordinates — the only reliable way to interact with Jira's custom components
-- **Coordinate-based click patterns** for Jira's non-semantic dropdowns where `querySelector('button')` returns nothing
-- Reusable Jira REST API scripts for bulk ops: ticket creation, priority correction, assignment, status transitions — all running from the browser console with the session's own auth context
-
-**Outcome:** Created 18 tickets, updated 5 existing ones with comments, bulk-corrected priorities across 16 tickets, and bulk-assigned all to a team member — work that would have taken hours done in minutes.
-
-### 3. Confluence — PRD Publishing via REST API
-
-**Problem:** Confluence draft pages have a quirk: their version number is permanently 1. Incrementing to 2 on a PUT returns HTTP 409. The standard "publish from the editor" workflow didn't support the programmatic content assembly needed (building large PRD pages from structured data with proper Confluence storage-format XHTML).
-
-**What was built:**
-
-- **Synchronous XHR patterns** (`XMLHttpRequest` with `async: false`) that work reliably inside browser-console JS tools — avoiding async/await issues in restricted execution contexts
-- A **chunked content assembly strategy** (`window.__part1__`, `window.__part2__`, etc.) for building large Confluence pages exceeding single-call character limits
-- **Confluence storage format reference** covering tables, headings, links, and special-character escaping (`&amp;`, `&lt;`, `&gt;`)
-
-**Outcome:** Published a complete PRD (anonymised internal payment product) to Confluence programmatically, including session rules tables, analytics event specifications (9 new events with attributes and triggers), push notification templates, and in-app communication copy — all properly formatted in Confluence's XHTML storage format.
-
-### 4. SharePoint — DOCX Extraction Without Libraries
-
-**Problem:** Needed to extract feedback text from a SharePoint-hosted Word document to create Jira tickets. SharePoint's CSP blocks external CDN scripts (JSZip, mammoth.js, etc.), and the Word iframe is cross-origin so direct DOM access fails.
-
-**What was built:**
-
-- A **manual ZIP parser** using native browser APIs — byte-scanning for `PK\x03\x04` signatures to locate entries in the DOCX archive, then using the native `DecompressionStream('deflate-raw')` API to decompress `word/document.xml`
-- **SharePoint REST API integration** for file discovery (`GetFileById`) and binary download (`GetFileByServerRelativePath/$value`) — all from the browser's own JS context to inherit SharePoint's session cookies
-
-**Outcome:** Extracted **4,765 characters** of structured UAT feedback from a SharePoint DOCX, parsed into individual bug reports, and fed into the Jira batch creation pipeline — all without any external dependencies.
-
-## Technical Patterns
-
-The toolkit distils these use cases into four reusable modules:
+## Modules
 
 | Module | What it does |
 |---|---|
-| `src/fetch-interceptor.js` | Monkey-patches `window.fetch` to intercept matching requests and transform their JSON body before sending. Handles `ReadableStream` bodies, provides a `restore()`, optionally exposes original/modified payloads for debugging |
-| `src/react-fiber-traversal.js` | Walk React's internal Fiber tree from any DOM element. Find components by prop name, read hook-state chains (`memoizedState.next.memoizedState...`), call internal handlers. Works with React 16+ across minified production builds |
-| `src/spa-navigation.js` | Navigate within React Router SPAs using `history.pushState` + `PopStateEvent`, completely bypassing `beforeunload` confirmation dialogs |
-| `src/ui-interaction.js` | Simulate realistic user interactions with full `mousedown → mouseup → click` event sequences, element lookup by text content or Material Icon ligature, DOM polling with configurable timeout |
+| [`src/fetch-interceptor.js`](src/fetch-interceptor.js) | Patch `window.fetch` to rewrite a JSON request body on its way out, while the app's own auth pipeline still builds the request. Handles `ReadableStream`, `Request`, `URLSearchParams` and object bodies. Interceptors stack, each returns an uninstall, and a throwing transform can never break the host app. |
+| [`src/react-fiber-traversal.js`](src/react-fiber-traversal.js) | Walk React's Fiber tree from any DOM node in a minified production build. Find components by prop, read hook-state chains, call internal handlers, and print the component chain when you need to look around. |
+| [`src/spa-navigation.js`](src/spa-navigation.js) | Move between routes via `pushState` + `PopStateEvent`, so an unsaved-changes guard never raises a "Leave site?" modal. Includes a settle-aware `navigateAndWait`. |
+| [`src/ui-interaction.js`](src/ui-interaction.js) | Full `pointerdown → mousedown → pointerup → mouseup → click` sequences with real coordinates, element lookup by text or Material Icons ligature, React-aware input setting, and polling helpers. |
 
-## Quick Start
+## Quick start
 
 ```javascript
-// Intercept a PUT request and override two fields before it reaches the server
-installFetchInterceptor({
+// Rewrite two fields on the way out, and let the app's own save button do the rest.
+const uninstall = installFetchInterceptor({
   match: (url, method) => url.includes('/api/charts/') && method === 'PUT',
   transformBody: (payload) => ({
     ...payload,
     chart_type: 'column',
-    granularity: 'entire',
+    granularity: 'e',
   }),
   debug: true,
+  once: true,
 });
+
+// ... click Save in the UI ...
+
+SPAKit.lastIntercepted();   // { original, modified, url, method, at }
+uninstall();
 ```
 
-## Key Lessons Learned (from 6+ sessions of real-world automation)
+Each module attaches to a `window.SPAKit` namespace when pasted into a console,
+and exports the same functions under CommonJS when required.
 
-1. **Direct `fetch()` calls from the console return 401** — SPAs like MoEngage and Jira inject auth headers via middleware that only runs for app-initiated requests. Always use the interceptor pattern to let the app's own auth pipeline handle authentication.
-2. **React state changes don't enable Save buttons** — calling an internal handler updates component state but doesn't set the form's `isDirty` flag. You need a genuine UI action (clicking a mode toggle) to trigger it.
-3. **Jira doesn't use semantic HTML for form controls** — priority dropdowns are styled `<div>`s, not `<button>`s. `querySelector('button')` returns nothing. Coordinate-based clicks are the only reliable approach.
-4. **SharePoint CSP blocks all external scripts** — can't load JSZip, mammoth.js, or any CDN library. Native `DecompressionStream` is the only path for DOCX extraction.
-5. **Confluence draft pages are always version 1** — sending `version: { number: 2 }` on a PUT to a draft page returns 409. Always use `version: { number: 1 }`.
-6. **Fiber keys are dynamic** — never hardcode `__reactFiber$abc123`. The suffix changes per page load. Always search with `Object.keys().find()`.
+## Worked examples
+
+Both are anonymised, and both encode a specific thing that does not work and why.
+
+- [`examples/moengage-bar-chart-save.js`](examples/moengage-bar-chart-save.js) —
+  persisting a bar chart with Entire granularity past a frontend validation bug,
+  end to end: navigate, arm the interceptor, drive the real save control, then
+  assert on what actually went over the wire.
+- [`examples/jira-bulk-edit.js`](examples/jira-bulk-edit.js) — bulk priority
+  changes and comments against Jira's REST API from a logged-in tab, with a dry
+  run that prints the diff before anything is written, plus a DOM fallback for
+  the fields the API will not take.
+
+## Where this came from
+
+Built across roughly six sessions of production work at a fintech: automating
+analytics dashboards, UAT bug triage, and wiki publishing for a team of about 25
+to 30 analysts, PMs and UAT engineers. Every pattern below is here because
+something simpler failed first.
+
+### 1. MoEngage — a chart the UI refused to save
+
+The Behavior chart editor greys out "Save analysis" for a bar chart in Entire
+mode: *"Missing field — Please specify granularity for chart"*. The API stores
+`chart_type: "column"` with `granularity: "e"` quite happily.
+
+Setting it through React does not work either, because bar mode and time
+granularity are mutually exclusive in the reducer — setting one resets the other —
+and a programmatic state change never sets the form's dirty flag, so Save stays
+disabled regardless.
+
+What worked: save from Daily mode, which passes validation, and rewrite the two
+fields in the interceptor.
+
+### 2. Jira — filing and correcting UAT tickets in bulk
+
+Filing 18 tickets through the modal is slow, and it loses Priority, Parent and
+Labels between issues. Atlaskit renders priority dropdowns as styled `<div>`s, so
+`querySelector('button')` returns nothing and `el.click()` is ignored.
+
+What worked: the REST API for anything it supports, running on the tab's own
+session cookie, with coordinate-based pointer sequences reserved for fields the
+API will not take. Result across one session: 18 tickets created, 5 updated with
+comments, priorities corrected across 16, all bulk-assigned.
+
+### 3. Confluence — publishing a PRD programmatically
+
+Draft pages are permanently version 1. `PUT` with `version: {number: 2}` returns
+409. Large pages also exceed what a single console call can carry.
+
+What worked: `version: {number: 1}` always, chunked assembly across
+`window.__part1__`, `window.__part2__`, and Confluence storage-format XHTML with
+`&amp;`, `&lt;`, `&gt;` escaped properly.
+
+### 4. SharePoint — reading a DOCX with no libraries
+
+SharePoint's CSP blocks every external script, so JSZip and mammoth.js are out,
+and the Word iframe is cross-origin.
+
+What worked: byte-scan the archive for `PK\x03\x04` signatures, decompress
+`word/document.xml` with the native `DecompressionStream('deflate-raw')`, and
+fetch the binary through SharePoint's own REST endpoints so session cookies come
+along. Extracted 4,765 characters of structured UAT feedback with no dependencies.
+
+## Lessons that cost the most to learn
+
+1. **Direct `fetch()` from the console returns 401.** Auth headers come from
+   middleware that only runs for app-initiated requests. Intercept; do not
+   originate.
+2. **React state changes do not enable Save buttons.** Calling an internal handler
+   updates state without setting `isDirty`. You need one genuine UI interaction.
+3. **Jira does not use semantic HTML for form controls.** Priority dropdowns are
+   `<div>`s. Match on text; dispatch a full pointer sequence with coordinates.
+4. **SharePoint CSP blocks all external scripts.** Native `DecompressionStream` is
+   the only path to DOCX contents.
+5. **Confluence draft pages are always version 1.** Sending version 2 returns 409.
+6. **Fiber keys are per-page-load.** Never hardcode `__reactFiber$abc123`; always
+   discover the key with `Object.keys().find()`.
+7. **`window.location.href` triggers `beforeunload`.** In a driven browser a modal
+   blocks every subsequent command. Use `pushState` + `PopStateEvent`.
+
+## Repo layout
+
+```
+spa-automation-toolkit/
+├── src/
+│   ├── fetch-interceptor.js       intercept and rewrite outgoing requests
+│   ├── react-fiber-traversal.js   find components, read hooks, call handlers
+│   ├── spa-navigation.js          route changes without unload prompts
+│   └── ui-interaction.js          clicks, lookup, React inputs, polling
+├── examples/
+│   ├── moengage-bar-chart-save.js worked end-to-end save past a validation bug
+│   └── jira-bulk-edit.js          REST bulk ops with a dry run, plus DOM fallback
+├── test/run-tests.js              22 tests, dependency-free
+└── package.json, LICENSE, README.md
+```
 
 ## Compatibility
 
 - React 16+ (Fiber architecture)
-- Chrome, Firefox, Edge (any browser with ES2017+ and DevTools console)
-- Tested against: MoEngage Analytics, Atlassian Jira, Atlassian Confluence, Microsoft SharePoint
-- Patterns are framework-agnostic at the browser level
+- Any browser with ES2017+ and a DevTools console
+- Verified against MoEngage Analytics, Atlassian Jira, Atlassian Confluence,
+  Microsoft SharePoint
+- The patterns are framework-agnostic at the browser level
 
----
+## Scope and caution
 
+These tools write to systems other people depend on. The examples dry-run by
+default and print a diff before applying, and that is the intended shape: look at
+what would change, then change it. `restoreFetch()` when you are done — leaving a
+patched `fetch` in a tab a colleague is using is a genuinely bad afternoon.
+
+Nothing here bypasses authentication or authorisation. Everything runs as you,
+with the permissions you already have, in a session you already opened.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
