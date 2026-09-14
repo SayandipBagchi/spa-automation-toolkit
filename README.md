@@ -1,8 +1,8 @@
 # SPA Automation Toolkit
 
 Browser-side JavaScript for automating configuration changes in React single-page
-applications — specifically for the case where the API supports what you need and
-the UI will not let you do it.
+applications, for the case where the API supports what you need and the UI will
+not let you do it.
 
 Zero dependencies. Paste a file into a DevTools console, or `require()` it in Node.
 
@@ -10,16 +10,22 @@ Zero dependencies. Paste a file into a DevTools console, or `require()` it in No
 npm test    # 22 tests, no dependencies, Node 14+
 ```
 
+For you if you are an analyst, PM or ops engineer with a logged-in tab and a task
+the UI blocks. Not for you if you want unattended CI automation or a headless
+crawler: everything here runs interactively, inside a session you opened.
+
+Status: maintained. MIT licensed.
+
 ## The problem
 
-Enterprise SaaS — analytics dashboards, issue trackers, wikis — ships as React
-SPAs with validation bugs, missing bulk operations, and controls that are disabled
-for reasons the backend does not share. The underlying API accepts what you want
-to do. The frontend is what is stopping you.
+Enterprise SaaS (analytics dashboards, issue trackers, wikis) ships as React SPAs
+with validation bugs, missing bulk operations, and controls that are disabled for
+reasons the backend does not share. The underlying API accepts what you want to
+do. The frontend is what is stopping you.
 
 The reflex is to drive the DOM with a headless browser. That is usually the wrong
 tool: you end up re-implementing SSO and MFA, and you still lose to non-semantic
-components. The approach here is the opposite — run inside the user's own
+components. The approach here is the opposite. Run inside the user's own
 logged-in session, and be deliberate about side effects.
 
 ## Modules
@@ -59,11 +65,11 @@ and exports the same functions under CommonJS when required.
 
 Both are anonymised, and both encode a specific thing that does not work and why.
 
-- [`examples/moengage-bar-chart-save.js`](examples/moengage-bar-chart-save.js) —
+- [`examples/moengage-bar-chart-save.js`](examples/moengage-bar-chart-save.js):
   persisting a bar chart with Entire granularity past a frontend validation bug,
-  end to end: navigate, arm the interceptor, drive the real save control, then
+  end to end. Navigate, arm the interceptor, drive the real save control, then
   assert on what actually went over the wire.
-- [`examples/jira-bulk-edit.js`](examples/jira-bulk-edit.js) — bulk priority
+- [`examples/jira-bulk-edit.js`](examples/jira-bulk-edit.js): bulk priority
   changes and comments against Jira's REST API from a logged-in tab, with a dry
   run that prints the diff before anything is written, plus a DOM fallback for
   the fields the API will not take.
@@ -75,21 +81,21 @@ analytics dashboards, UAT bug triage, and wiki publishing for a team of about 25
 to 30 analysts, PMs and UAT engineers. Every pattern below is here because
 something simpler failed first.
 
-### 1. MoEngage — a chart the UI refused to save
+### 1. MoEngage: a chart the UI refused to save
 
 The Behavior chart editor greys out "Save analysis" for a bar chart in Entire
-mode: *"Missing field — Please specify granularity for chart"*. The API stores
+mode: `Missing field — Please specify granularity for chart`. The API stores
 `chart_type: "column"` with `granularity: "e"` quite happily.
 
 Setting it through React does not work either, because bar mode and time
-granularity are mutually exclusive in the reducer — setting one resets the other —
+granularity are mutually exclusive in the reducer (setting one resets the other),
 and a programmatic state change never sets the form's dirty flag, so Save stays
 disabled regardless.
 
 What worked: save from Daily mode, which passes validation, and rewrite the two
 fields in the interceptor.
 
-### 2. Jira — filing and correcting UAT tickets in bulk
+### 2. Jira: filing and correcting UAT tickets in bulk
 
 Filing 18 tickets through the modal is slow, and it loses Priority, Parent and
 Labels between issues. Atlaskit renders priority dropdowns as styled `<div>`s, so
@@ -100,7 +106,7 @@ session cookie, with coordinate-based pointer sequences reserved for fields the
 API will not take. Result across one session: 18 tickets created, 5 updated with
 comments, priorities corrected across 16, all bulk-assigned.
 
-### 3. Confluence — publishing a PRD programmatically
+### 3. Confluence: publishing a PRD programmatically
 
 Draft pages are permanently version 1. `PUT` with `version: {number: 2}` returns
 409. Large pages also exceed what a single console call can carry.
@@ -109,7 +115,14 @@ What worked: `version: {number: 1}` always, chunked assembly across
 `window.__part1__`, `window.__part2__`, and Confluence storage-format XHTML with
 `&amp;`, `&lt;`, `&gt;` escaped properly.
 
-### 4. SharePoint — reading a DOCX with no libraries
+The chunked assembly is worth naming separately. A page body larger than one
+console call has to arrive in pieces and be joined in the page, not in the
+caller, because the limit is on what a single call can carry rather than on what
+Confluence will accept. Parking the parts on `window` and concatenating them at
+the end keeps each call small and makes a failed part obvious, since a missing
+`window.__part2__` throws instead of silently publishing a truncated page.
+
+### 4. SharePoint: reading a DOCX with no libraries
 
 SharePoint's CSP blocks every external script, so JSZip and mammoth.js are out,
 and the Word iframe is cross-origin.
@@ -160,16 +173,25 @@ spa-automation-toolkit/
   Microsoft SharePoint
 - The patterns are framework-agnostic at the browser level
 
+## Seeing what actually happened
+
+Automation against someone else's SPA fails quietly. A click lands on a toolbar instead of a text body, a save silently does not fire, a request goes out with the old payload. None of that raises an error, so the tooling is built so you can always see the actual state rather than infer it.
+
+`SPAKit.lastIntercepted()` returns `{ original, modified, url, method, at }` for the last request the interceptor touched, so you can assert on what went over the wire rather than on what you intended to send. `debug: true` logs every match. The Jira example dry-runs by default and prints the diff before writing. The MoEngage example ends by asserting on the intercepted payload, not on the UI looking right.
+
+That is the whole observability story, and it is deliberately cheap. Being able to answer "what did the server actually receive" is worth more here than any amount of defensive retry logic.
+
 ## Scope and caution
 
 These tools write to systems other people depend on. The examples dry-run by
 default and print a diff before applying, and that is the intended shape: look at
-what would change, then change it. `restoreFetch()` when you are done — leaving a
-patched `fetch` in a tab a colleague is using is a genuinely bad afternoon.
+what would change, then change it. Call `restoreFetch()` when you are done.
+Leaving a patched `fetch` in a tab a colleague is using is a genuinely bad
+afternoon.
 
 Nothing here bypasses authentication or authorisation. Everything runs as you,
 with the permissions you already have, in a session you already opened.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
