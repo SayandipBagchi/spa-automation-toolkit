@@ -1,20 +1,20 @@
 # SPA Automation Toolkit
 
+Built across roughly six sessions of production work at a fintech: automating
+analytics dashboards, UAT bug triage, and wiki publishing for a team of about 25
+to 30 analysts, PMs and UAT engineers.
+
 Browser-side JavaScript for automating configuration changes in React single-page
 applications, for the case where the API supports what you need and the UI will
 not let you do it.
 
-Zero dependencies. Paste a file into a DevTools console, or `require()` it in Node.
-
-```
-npm test    # 22 tests, no dependencies, Node 14+
-```
+Paste a file into a DevTools console, or `require()` it in Node.
 
 For you if you are an analyst, PM or ops engineer with a logged-in tab and a task
 the UI blocks. Not for you if you want unattended CI automation or a headless
 crawler: everything here runs interactively, inside a session you opened.
 
-Status: maintained. MIT licensed.
+Status: maintained. Zero dependencies, 22 tests, Node 14+. MIT licensed.
 
 ## The problem
 
@@ -76,10 +76,7 @@ Both are anonymised, and both encode a specific thing that does not work and why
 
 ## Where this came from
 
-Built across roughly six sessions of production work at a fintech: automating
-analytics dashboards, UAT bug triage, and wiki publishing for a team of about 25
-to 30 analysts, PMs and UAT engineers. Every pattern below is here because
-something simpler failed first.
+Every pattern below is here because something simpler failed first.
 
 ### 1. MoEngage: a chart the UI refused to save
 
@@ -130,7 +127,7 @@ and the Word iframe is cross-origin.
 What worked: byte-scan the archive for `PK\x03\x04` signatures, decompress
 `word/document.xml` with the native `DecompressionStream('deflate-raw')`, and
 fetch the binary through SharePoint's own REST endpoints so session cookies come
-along. Extracted 4,765 characters of structured UAT feedback with no dependencies.
+along.
 
 ## Lessons that cost the most to learn
 
@@ -141,13 +138,6 @@ along. Extracted 4,765 characters of structured UAT feedback with no dependencie
    updates state without setting `isDirty`. You need one genuine UI interaction.
 3. **Jira does not use semantic HTML for form controls.** Priority dropdowns are
    `<div>`s. Match on text; dispatch a full pointer sequence with coordinates.
-4. **SharePoint CSP blocks all external scripts.** Native `DecompressionStream` is
-   the only path to DOCX contents.
-5. **Confluence draft pages are always version 1.** Sending version 2 returns 409.
-6. **Fiber keys are per-page-load.** Never hardcode `__reactFiber$abc123`; always
-   discover the key with `Object.keys().find()`.
-7. **`window.location.href` triggers `beforeunload`.** In a driven browser a modal
-   blocks every subsequent command. Use `pushState` + `PopStateEvent`.
 
 ## Repo layout
 
@@ -175,11 +165,11 @@ spa-automation-toolkit/
 
 ## Seeing what actually happened
 
-Automation against someone else's SPA fails quietly. A click lands on a toolbar instead of a text body, a save silently does not fire, a request goes out with the old payload. None of that raises an error, so the tooling is built so you can always see the actual state rather than infer it.
+Automation against someone else's SPA fails quietly. A click lands on a toolbar instead of a text body, or a request goes out with the old payload. Neither raises an error, so the tooling is built so you can always see the actual state rather than infer it.
 
 `SPAKit.lastIntercepted()` returns `{ original, modified, url, method, at }` for the last request the interceptor touched, so you can assert on what went over the wire rather than on what you intended to send. `debug: true` logs every match. The Jira example dry-runs by default and prints the diff before writing. The MoEngage example ends by asserting on the intercepted payload, not on the UI looking right.
 
-That is the whole observability story, and it is deliberately cheap. Being able to answer "what did the server actually receive" is worth more here than any amount of defensive retry logic.
+Being able to answer "what did the server actually receive" is worth more here than any amount of defensive retry logic.
 
 ## Scope and caution
 
